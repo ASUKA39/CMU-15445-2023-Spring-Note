@@ -328,6 +328,8 @@ make submit-p0
 
 #### std::unordered_map
 
+#### 移动构造、移动赋值
+
 ### Task 1 LRU-K Replacement Policy
 
 #### LRU-K 淘汰策略
@@ -376,4 +378,51 @@ Project 帮我们预设了一些可能会被使用的类成员，只需要去掉
 
 其实也没什么东西，唯一要注意的是如果想要进行测试，就需要找到测试对应源码，删掉`TEST`函数参数名里的`DISABLED_`前缀，否则该测试会直接被跳过
 
-### Task 2
+### Task 2 Buffer Pool Manager
+
+
+
+### Task 3 Read/Write Page Guards
+
+
+
+### Submit
+
+有一个比较古怪的点是代码风格检查工具 CppLint 限制了 C++11 下`<mutex>`头文件的使用，如果不修改的话在`check-lint`的时候会报错`<mutex> is an unapproved C++11 header.`导致过不了编译直接零分。以下是 CppLint 脚本相关部分的源码
+
+```python
+# Flag unapproved C++11 headers.
+if include and include.group(1) in ('cfenv',
+                                  'condition_variable',
+                                  'fenv.h',
+                                  'future',
+                                  'mutex',
+                                  'thread',
+                                  'chrono',
+                                  'ratio',
+                                  'regex',
+                                  'system_error',
+                                 ):
+error(filename, linenum, 'build/c++11', 5,
+      ('<%s> is an unapproved C++11 header.') % include.group(1))
+```
+
+解决办法是在`.cpp`文件里删掉头文件`<mutex>`的包含（`.h`文件里的不用删），至于具体原因我也没有查到，有点怪
+
+### 优化
+
+Project 1 开放了 Leaderboard，搞性能优化刷排名也是 15445 Lab 最精华的部分之一，但一是这是我第一次接触 DBMS，还不太熟悉 DBMS 的整体架构还需要点时间缕缕，二是目前我用的是 WSL 不方便装 perf 不好进行性能分析，所以目前我先不进行优化了
+
+但是当前还是能想到有几个可能可以优化的点：
+
+- `BufferPoolManager`、`LRUKReplacer`都是无脑大锁一把嗦，多线程下必然会拖慢运行速度，可以改成更加细粒度的锁，比如每个`page_id`一个锁
+  - 我还看到有用二阶段锁来优化的，不过暂时超出了我的知识范围
+- 测试中有区分 workflow 的`AccessType`（更离散的`Get`和更全局的`Scan`），其实可以针对不同的`AccessType`对`LRUKReplacer`的替换策略进行优化
+- 方便起见我还在`LRUKReplacer`中使用了很多哈希表，但听说 C++ 的哈希表性能其实一般般，针对这个还可以进行部分优化
+
+由于能力所限以及没经过实操，这里我也只能猜个十之一二，下面贴点大佬的链接
+
+- [CMU 15-445 2023 P1 优化攻略 - 散落的叶子 (aneureka.com)](https://www.aneureka.com/posts/cmu-15445-p1-opt)
+- [CMU 15445 Project 1 - xxxl's Blog (4ever-xxxl.github.io)](https://4ever-xxxl.github.io/cmu-15445-project-1/#leaderboard-task)
+- [记录一次 perf 性能调优 CMU 15-445 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/572190574)
+- [CMU15445 (Spring 2023) #Project1 优化_cmu15445 project1-CSDN博客](https://blog.csdn.net/weixin_70354558/article/details/130663075)
