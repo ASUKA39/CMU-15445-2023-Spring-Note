@@ -409,6 +409,8 @@ error(filename, linenum, 'build/c++11', 5,
 
 解决办法是在`.cpp`文件里删掉头文件`<mutex>`的包含（`.h`文件里的不用删），至于具体原因我也没有查到，有点怪
 
+![pass](./img/pj1/pass.png)
+
 ### 优化
 
 Project 1 开放了 Leaderboard，搞性能优化刷排名也是 15445 Lab 最精华的部分之一，但一是这是我第一次接触 DBMS，还不太熟悉 DBMS 的整体架构还需要点时间缕缕，二是目前我用的是 WSL 不方便装 perf 不好进行性能分析，所以目前我先不进行优化了
