@@ -380,11 +380,69 @@ Project 帮我们预设了一些可能会被使用的类成员，只需要去掉
 
 ### Task 2 Buffer Pool Manager
 
+#### BufferPoolManager
 
+缓冲池管理器要做的其实类似于 OS 的虚拟内存管理，维护一段内存作为缓冲池，当数据库需要一个页面时将页面从磁盘调入缓冲池中并将内存中的页面的指针与页面号关联映射，当缓冲池已满则根据替换策略进行页面替换，若页面被修改过还要将其落盘
+
+`BufferPoolManager`与磁盘相关的操作由`DiskManager`提供，23 Spring 的`DiskManager`不需要我们实现了，其功能大体而言就是打开 db 文件，然后进行文件读写（`fstream`）以及日志读写
+
+`BufferPoolManager`类的成员变量有：缓冲池大小`pool_size_`、下一个可分配的页号`next_page_id_`、页对象数组`pages_`、磁盘管理器`disk_manager_`、日志管理器`log_manager_`、页表`page_table`、LRU-K 替换器`replacer_`、空闲页列表`free_list_`以及一把大锁`latch_`，成员方法就不列举了具体看下面
+
+每个`Page`对象包含有：一个指向数据的字符指针`data_`、一个页号`page_id_`、pin 计数器`pin_count_`、脏位`is_dirty_`以及一把读写锁`rwlatch_`，需要注意的是这是内存页的内容，落到磁盘中的页是没有`data_`以外的那些元数据的
+
+#### NewPage
+
+`NewPage`方法的功能是在缓冲池中（也就是内存中）创建一个新页，初始化这个新页并为其分配一个页号。当然，如果缓冲池满就需要调用替换器进行替换后再创建
+
+所以实现就非常自然了，加大锁后检查`free_list_`看看是否需要替换，要的话就看是否需要落盘，替换后将页面从`page_table_`中擦除，然后为新页申请页号、初始化、`RecordAccess`加一次引用计数、最后返回指针即可
+
+#### FetchPage
+
+`FetchPage`方法类似，不过不是在内存中创建新页，而是从缓冲池中取一个页面，缓冲池中没有就从磁盘中调入
+
+大体流程也是类似，不过首先需要确认页面是否存在于缓冲池中，不存在才进行替换，其次对于页面的`data_`也不再是`ResetMemory`，而是调用`ReadPage`从磁盘中读入内容
+
+#### UnpinPage
+
+`UnpinPage`方法的作用是让当前线程不再 pin 住一个页面，所谓的 pin 就是页面正在被某些线程使用不允许替换
+
+方法的实现也比较简单，对`page_id`以及对应的`pin_count_`进行必要的合法性检查后，减少`pin_count_`，如果页面在当前线程是脏的（也就是`UnpinPage`参数里的`is_dirty`），那就将页面的脏位置为真，如果到最后页面的`pin_count_`减到 0 了那就顺手将页面置为 evictable 即可
+
+#### FlushPage、FlushAllPages
+
+`FlushPage`方法顾名思义就是刷新页面，也就是主动将页面落盘。实现方法不必多说，确认合法性后如果页面是脏的那就调用`disk_manager`的`WritePage`方法将页面落盘，然后重置脏位即可
+
+`FlushAllPage`也一样，遍历页表并将脏页面以同样方式落盘即可
+
+#### DeletePage
+
+`DeletePage`方法负责将指定页面从缓冲池中剔除，其实大体流程与`NewPage`类似，记得脏页面要落盘即可
+
+#### 测试
+
+记得删掉测试文件里的`DISABLE_`，以及注释掉`BufferPoolManager`构造函数里的`throw`
 
 ### Task 3 Read/Write Page Guards
 
+这个 Task 的设计目的是：程序员可能会忘记调用`UnpinPage`，导致页面一致驻留在缓冲池中，最后缓冲池容量越来越小调度越来越频繁严重拖慢性能，如果页面管理能采用 RAII 式的设计（类似于智能指针）就能避免这个问题并减少开发者的心智负担
 
+实话说做到这里我暂时没太搞懂`PageGuard`具体的使用逻辑，不过跟着注释的提示依旧能完成任务
+
+#### page_guard
+
+注释要求我们实现`PageGuard`的移动构造函数、移动赋值运算符重载以及析构方法`Drop`
+
+移动构造函数要做的很简单，首先如果本`PageGuard`的`bpm_`（也就是`BufferPoolManager`）非空就需要先将其`Drop`掉防止内存泄漏，然后将右值对象的成员赋值给本对象，然后无效化右值对象的成员变量即可（不用释放，释放掉就会造成 Use-After-Free 了）
+
+移动赋值运算符重载与移动构造类似，不过还要加一个左值和右值不相等的判断
+
+`Drop`方法首先需要确认指针成员`bpm_`和`page_`非空，然后调用`UnpinPage`取消掉本线程对页面的 pin 标记，随后无效化成员变量即可
+
+对于`Read/WritePageGuard`而言，`Drop`只需要调用`R/WUnlatch`解锁并为`guard_`成员调用`Drop`即可；而由于`BasicPageGuard`的拷贝构造函数和赋值运算符重载被`delete`掉了，这里移动构造和移动赋值记得调用`std::move`将左值转换为右值后再使用构造函数或赋值运算符
+
+#### buffer_pool_manager
+
+这里要做的是对刚刚那些方法的封装，没几行代码，唯一要注意的是`FetchPageRead/Write`里要对页面调用`R/WLatch`上锁
 
 ### Submit
 
