@@ -316,19 +316,96 @@ make submit-p0
 
 ### Modern C++
 
-#### 尾置返回类型
+#### 类型推导
+
+传统 C++ 中，如果类的关系或者模板定义过于复杂，声明类型时往往会造成很大的心智负担，因此 Modern C++ 决定把一些类型推导工作交给编译器，再加一些语法糖方便开发者阅读代码，于是诞生了`auto`、`decltype`和尾置返回类型
+
+大名鼎鼎的`auto`就不必多说了，但是强如`auto`也不能保证类型推导完全符合预期，于是可以使用`decltype`来提示编译器；至于尾置返回类型应该就是纯纯为了代码的易读性
+
+下面这段代码中函数定义部分的含义就是：`auto`和`->`意味着函数定义使用尾置返回类型，`decltype`提示编译器返回类型应该与两个 int 相加的类型相同（即还是 int）
+
+```c++
+auto mul(int a, int b) -> decltype(a * b) {	// return type is 'int'
+    auto result = a * b;
+    return result;
+}
+
+auto c = mul(1, 2);	// int
+```
+
+#### 列表初始化
+
+传统 C/C++ 中对于结构体我们都可以使用花括号包裹一堆变量来进行初始化，非常方便，但是类的初始化就只能使用各种构造函数或者赋值重载。Modern C++ 填上了这个坑，使得我们可以用花括号包裹一段参数列表进行类的初始化
+
+```c++
+#include <vector>
+#include <iostream>
+// #include <initializer_list>
+
+class MagicFoo {
+public:
+    std::vector<int> vec;
+    MagicFoo(std::initializer_list<int> list) {
+        for (std::initializer_list<int>::iterator it = list.begin();
+             it != list.end(); ++it)
+            vec.push_back(*it);
+    }
+};
+int main() {
+    // after C++11
+    MagicFoo magicFoo = {1, 2, 3, 4, 5};
+
+    std::cout << "magicFoo: ";
+    for (std::vector<int>::iterator it = magicFoo.vec.begin(); 
+        it != magicFoo.vec.end(); ++it) 
+        std::cout << *it << std::endl;
+}
+```
+
+除此之外，在 Bustub 的源码中还有一个很有趣的用法，代码如下，其中`BPG`是一个类，其构造函数接收两个参数。这里代码的意思就是函数`BPM::Foo`返回类型是`BPG`对象，而函数具体返回一个用花括号包裹的初始化参数列表并将其作为构造函数的参数
+
+```c++
+auto BPM::Foo(int a) -> BPG { return {this, nullptr}; }
+/* Equal to:
+* auto BPM:Foo(int a) -> BPG {
+*	return BPG(this, nullptr);
+* }
+*/
+```
 
 #### override 关键字
 
+`override`关键字的作用是：如果派生类在虚函数声明时使用了`override`，那么该函数必须重载其基类中的同名函数，否则代码将无法通过编译
+
 #### [[maybe_unused]]
 
-#### std::mutex
+`[[maybe_unused]]`关键字用于描述暂时没有被使用的函数或变量，避免编译器发出警告。其可以写在变量、函数参数列表甚至是函数之前。通过阅读 Project 的代码我还发现如果函数参数中有一个`[[maybe_unused]]`的变量且后续调用函数都不传入这个参数，编译器也不会发出警告，不过编译器的具体行为到底如何还需要进一步实验
 
 #### std::lock_guard
 
-#### std::unordered_map
+互斥类的最重要成员函数是`lock`和`unlock`。在进入临界区时，执行`lock`加锁操作，如果这时已经被其它线程锁住，则当前线程在此排队等待。退出临界区时，执行`unlock`解锁操作。更好的办法是采用 RAII 的形式来进行加解锁，这样就可以避免在临界区中因为抛出异常或`return`等操作导致没有解锁就退出的问题，同时还大大减少了并发编程的心智负担。C++11 就提供了`std::lock_guard`类模板，可以作为一个函数里比较粗粒度的`mutex`的 RAII
+
+```c++
+std::mutex latch;
+
+int foo(){
+    std::lock_guard<std::mutex> guard(latch);
+}
+```
+
+注意这里的`guard`只是`lock_guard`的对象名
 
 #### 移动构造、移动赋值
+
+这是前面介绍过的移动语义的一部分
+
+移动构造函数顾名思义就是参数是一个右值的构造函数，具体表现形式是函数定义时形参名前面带`&&`标识符。移动构造函数的定义需要经过以下流程
+
+- 释放本对象占用的资源，避免造成内存泄漏
+- 将目标对象的资源移交给本对象
+- 将目标对象的指针等无效化，避免目标对象被析构后本对象引用资源造成 Use-After-Free
+
+移动赋值与移动构造类似，其表现形式是右值是右值（？）的赋值运算符重载。相比于移动构造，移动赋值只多了判断左值与右值是否是同一个对象，以及结束赋值运算后返回本对象
 
 ### Task 1 LRU-K Replacement Policy
 
